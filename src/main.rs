@@ -1,7 +1,6 @@
-// Simplified main for initial compilation
+// GitHub Actions TUI Application
 use anyhow::Result;
 use std::io;
-use url::Url;
 use ratatui::{
     backend::CrosstermBackend,
     Terminal,
@@ -20,7 +19,9 @@ mod utils;
 mod config;
 
 use app::{AppState, AuthState};
-use auth::TokenManager;
+use auth::{TokenManager, auth_code_flow};
+use github::GitHubClient;
+use utils::error::AppError;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -69,6 +70,64 @@ async fn main() -> Result<()> {
 //     todo!("Implement proper repository mocking")
 // }
 
+async fn load_repositories(app: &mut AppState) -> Result<(), AppError> {
+    if let Ok(token_manager) = TokenManager::new() {
+        if let Ok(Some(token_data)) = token_manager.get_token() {
+            // Load repositories using stored token
+            app.set_loading(true);
+            
+            match GitHubClient::new(&token_data.access_token).await {
+                Ok(client) => {
+                    match client.get_user_repos().await {
+                        Ok(repos) => {
+                            app.repos = repos;
+                        }
+                        Err(e) => {
+                            app.auth_state = AuthState::Error { 
+                                message: format!("Failed to load repositories: {}", e) 
+                            };
+                        }
+                    }
+                }
+                Err(e) => {
+                    app.auth_state = AuthState::Error { 
+                        message: format!("Failed to create GitHub client: {}", e) 
+                    };
+                }
+            }
+            
+            app.set_loading(false);
+        }
+    }
+    Ok(())
+}
+
+async fn load_workflow_actions(app: &mut AppState) -> Result<(), AppError> {
+    if let Some(selected_repo_index) = app.selected_repo {
+        if selected_repo_index < app.repos.len() {
+            let selected_repo = app.repos[selected_repo_index].clone();
+            
+            if let Ok(token_manager) = TokenManager::new() {
+                if let Ok(Some(token_data)) = token_manager.get_token() {
+                    match GitHubClient::new(&token_data.access_token).await {
+                        Ok(_client) => {
+                            // For now, use mock workflow actions
+                            app.set_loading(true);
+                            app.actions.clear();
+                            app.set_loading(false);
+                        }
+                        Err(_) => {
+                            // Error loading workflows
+                            app.actions.clear();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut AppState,
@@ -81,10 +140,22 @@ async fn run_app(
         if let Ok(Event::Key(key)) = crossterm::event::read() {
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
+                    let old_selected = app.selected_repo;
                     app.move_selection(-1);
+                    
+                    // Load workflow actions if repository selection changed
+                    if old_selected != app.selected_repo {
+                        let _ = load_workflow_actions(app).await;
+                    }
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
+                    let old_selected = app.selected_repo;
                     app.move_selection(1);
+                    
+                    // Load workflow actions if repository selection changed
+                    if old_selected != app.selected_repo {
+                        let _ = load_workflow_actions(app).await;
+                    }
                 }
                 KeyCode::Left | KeyCode::Char('h') => {
                     app.switch_panel(-1);
@@ -102,13 +173,38 @@ async fn run_app(
                             // Set to authenticating state for UI feedback
                             app.auth_state = app::AuthState::Authenticating;
                             
-                            // Simulate login delay (optional)
-                            std::thread::sleep(std::time::Duration::from_millis(500));
-                            
-                            // For now, simulate successful login
-                            app.auth_state = app::AuthState::Authenticated { 
-                                username: "demo_user".to_string() 
-                            };
+                            // Attempt real authentication
+                            match auth_code_flow().await {
+                                Ok(auth_result) => {
+                                    // Store token
+                                    let _token_manager = TokenManager::new().and_then(|tm| {
+                                        tm.store_token(&auth_result.access_token)
+                                    });
+                                    
+                                    // Update auth state with real username
+                                    app.auth_state = app::AuthState::Authenticated { 
+                                        username: auth_result.username 
+                                    };
+                                    
+                                    // Clear previous data and load repositories
+                                    app.repos.clear();
+                                    app.actions.clear();
+                                    app.selected_repo = None;
+                                    app.selected_action = None;
+                                    
+                                    // Load user repositories
+                                    if let Err(e) = load_repositories(app).await {
+                                        app.auth_state = AuthState::Error { 
+                                            message: format!("Failed to load repositories: {}", e) 
+                                        };
+                                    }
+                                }
+                                Err(e) => {
+                                    app.auth_state = app::AuthState::Error { 
+                                        message: format!("Login failed: {}", e) 
+                                    };
+                                }
+                            }
                         }
                         app::AuthState::Authenticated { .. } => {
                             // Logout
@@ -117,6 +213,11 @@ async fn run_app(
                             app.actions.clear();
                             app.selected_repo = None;
                             app.selected_action = None;
+                            
+                            // Clear stored token
+                            if let Ok(token_manager) = TokenManager::new() {
+                                let _ = token_manager.clear_token();
+                            }
                         }
                         _ => {}
                     }
