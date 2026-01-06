@@ -127,7 +127,7 @@ fn render_repos_panel(f: &mut Frame, area: Rect, app: &AppState) {
             };
 
             let content = Line::from(vec![
-                Span::styled(&repo.repo.name, style),
+                Span::styled(&repo.repo_name, style),
                 Span::raw(" "),
                 Span::styled(status_indicator, Style::default().fg(Color::Gray)),
             ]);
