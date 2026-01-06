@@ -38,6 +38,10 @@ impl AppState {
         }
     }
 
+    pub fn set_loading(&mut self, loading: bool) {
+        self.loading = loading;
+    }
+
     pub fn move_selection(&mut self, direction: i32) {
         if !self.repos.is_empty() {
             let current = self.selected_repo.unwrap_or(0);
