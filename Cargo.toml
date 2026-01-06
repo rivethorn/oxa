@@ -1,0 +1,31 @@
+[package]
+name = "oxa"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# OAuth2 & Authentication  
+oauth2 = "5.0"
+reqwest = { version = "0.12", features = ["json"] }
+url = "2.5"
+keyring = "2.3"
+
+# GitHub API
+octocrab = "0.38"
+
+# TUI Framework
+ratatui = "0.28"
+crossterm = "0.28"
+
+# Utilities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+dirs = "5.0"
+tiny_http = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+webbrowser = "1.0"
